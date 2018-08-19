@@ -1,5 +1,6 @@
 //variables placed here are shared by all nodes
-var storage = require('node-persist');
+var storage = require('node-persist'),
+    netstat = require('node-netstat');
 
 //this should be a number that does not round nicely when convert to 0-100 range
 const bri_default = 126;
@@ -560,16 +561,63 @@ module.exports = function(RED)
     function getPortForLightId(lightId) 
     {
         if (storage === null || storage === undefined)
-            return 0;
+            return getNextAvailablePort();
         if (lightId === null || lightId === undefined)
-            return 0;
+            return getNextAvailablePort();
 
         var key = formatUUID(lightId);
         var value = storage.getItemSync(key);
         if (value === null || value === undefined || value <= 0 || value >= 65536)
-            return 0;
+            return getNextAvailablePort();
 
         return value;
+    }
+
+    /*
+     * Get a port number according to environment variable USE_PORT_RANGE
+     */
+    function getNextAvailablePort(portRangeAsString) {
+        var portString = portRangeAsString || process.env.USE_PORT_RANGE;
+    
+        if (portString) {
+            var portStart, portLast
+    
+            portStart = parseInt(portString.split("-")[0])
+            portLast = parseInt(portString.split("-")[1])
+    
+            var portArr = []
+    
+            netstat({
+                sync: true,
+                filter: {
+                    local: {
+                        address: null
+                    }
+                }
+            }, portArr.push.bind(portArr))
+        
+            portArr = portArr.map(
+                portInfo => portInfo.local.port
+            ).filter(
+                // filter port range and also the index to eliminate duplicates
+                (portNr, index, arr) => portNr >= portStart && portNr <= portLast && arr.indexOf(portNr) === index
+            )
+            
+            if (portArr.length > portLast - portStart) {
+                throw new Error("No available port in the range " + portString);
+            }
+            else {
+                for(var i = portStart; i <= portLast; ++i) {
+                    if (portArr.indexOf(i) < 0) {
+                        return i
+                    }
+                }
+            }
+      }
+      // node will decide which port to take
+      else {
+          return 0
+      }
     }
 
     /*
